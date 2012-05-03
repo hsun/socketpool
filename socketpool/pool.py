@@ -51,7 +51,10 @@ class ConnectionPool(object):
         if pool.qsize():
             for priority, candidate in pool:
                 if not self.too_old(candidate):
-                    pool.put((priority, candidate))
+                    # to avoid infinite loop, have to murder all for now
+                    #pool.put((priority, candidate))
+                    pass
+                self.size -= 1
 
     def start_reaper(self):
         self._reaper = self.backend_mod.ConnectionReaper(self,
@@ -61,6 +64,7 @@ class ConnectionPool(object):
     def release_all(self):
         if self.pool.qsize():
             for priority, conn in self.pool:
+                self.size -= 1
                 conn.invalidate()
 
     def release_connection(self, conn):
@@ -71,6 +75,7 @@ class ConnectionPool(object):
         if connected and not self.too_old(conn):
             self.pool.put((conn.get_lifetime(), conn))
         else:
+            self.size -= 1
             conn.invalidate()
 
     def get(self, **options):
@@ -84,12 +89,17 @@ class ConnectionPool(object):
                 i -= 1
                 if self.too_old(candidate):
                     # let's drop it
+                    self.size -= 1
                     continue
 
                 matches = candidate.matches(**options)
                 if not matches:
                     # let's put it back
-                    self.pool.put((priority, candidate))
+                    # we can NOT put it back to the queue for 2 reasons
+                    # 1) the item added to the queue will be added to the iter again, and it is a endless loop
+                    # 2) if the queue is priority queue, then the same conn (highest priority) will be return always
+                    # self.pool.put((priority, candidate))
+                    self.size -= 1
                 else:
                     if candidate.is_connected():
                         found = candidate
